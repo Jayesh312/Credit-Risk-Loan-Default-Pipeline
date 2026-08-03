@@ -18,7 +18,7 @@ def load_pipeline():
 try:
     pipeline = load_pipeline()
 except Exception as e:
-    st.error(f"⚠️ Could not load `loan_default_pipeline.pkl`. Ensure the file is in the same directory. Details: {e}")
+    st.error(f"⚠️ Could not load `loan_default_pipeline.pkl`. Ensure the file is in the same directory and pushed to GitHub. Details: {e}")
     st.stop()
 
 st.title("💳 Credit Risk & Loan Default Assessment")
@@ -52,7 +52,7 @@ with st.form("loan_prediction_form"):
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            loan_amount = st.number_input("Loan Amount ($)", min_value=1000, max_value=100000, value=15000, step=500)
+            loan_amount = st.number_input("Loan Amount ($)", min_value=1000.0, max_value=100000.0, value=15000.0, step=500.0)
             term = st.selectbox("Term (Months)", options=[36, 60], index=0)
             interest_rate = st.number_input("Interest Rate (%)", min_value=5.0, max_value=35.0, value=11.5, step=0.1)
             installment = st.number_input("Monthly Installment ($)", min_value=50.0, max_value=3000.0, value=495.0, step=10.0)
@@ -143,7 +143,7 @@ with st.form("loan_prediction_form"):
     # Submit Button
     submit_button = st.form_submit_button("🔍 Calculate Risk & Predict Default", use_container_width=True)
 
-# Prediction Logic
+# --- PREDICTION LOGIC ---
 if submit_button:
     # 1. Compute dynamic engineered ratio features matching notebook rules
     loan_to_income = loan_amount / annual_income if annual_income > 0 else np.nan
@@ -153,7 +153,6 @@ if submit_button:
 
     # 2. Assemble DataFrame matching exact column order and names expected by ColumnTransformer
     input_dict = {
-        # Numeric Features (39)
         'emp_length': emp_length,
         'annual_income': annual_income,
         'debt_to_income': debt_to_income,
@@ -177,64 +176,11 @@ if submit_button:
         'num_accounts_120d_past_due': num_accounts_120d_past_due,
         'num_accounts_30d_past_due': num_accounts_30d_past_due,
         'num_active_debit_accounts': num_active_debit_accounts,
-        'total_Here is a complete, clean starter template for a **Streamlit** `app.py`. It includes standard UI elements like page configuration, a sidebar, metrics, standard inputs, a dynamic chart, and a file uploader.
+        'total_debit_limit': total_This error happens because a piece of conversational AI text was accidentally copy-pasted directly into your Python code, and Python doesn't know how to read it. 
 
----
+A `SyntaxError: unterminated string literal` means that Python saw a quote mark open a string (in this case, `'`), but the line ended before it found the closing quote mark. 
 
-## 🛠️ `app.py` Template
+Looking at your error message, you can see exactly what happened:
 
 ```python
-import streamlit as st
-import pandas as pd
-import numpy as np
-
-# 1. Page Configuration
-st.set_page_config(
-    page_title="My Streamlit App",
-    page_icon="🚀",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# 2. Sidebar Setup
-st.sidebar.header("⚙️ App Settings")
-user_name = st.sidebar.text_input("Your Name", value="Explorer")
-data_points = st.sidebar.slider("Select Data Points", min_value=10, max_value=200, value=50)
-
-# 3. Main Dashboard Header
-st.title("🚀 Streamlit Interface Starter")
-st.write(f"Welcome back, **{user_name}**! Here is your quick metrics overview.")
-
-# 4. Metrics Layout
-col1, col2, col3 = st.columns(3)
-col1.metric(label="Status", value="Online")
-col2.metric(label="Data Points Loaded", value=data_points, delta="+10%")
-col3.metric(label="Performance", value="Optimal")
-
-st.divider()
-
-# 5. Interactive Chart
-st.subheader("📊 Sample Visualization")
-
-# Generate random sample data based on user input
-chart_data = pd.DataFrame(
-    np.random.randn(data_points, 2),
-    columns=["Metric A", "Metric B"]
-)
-
-st.line_chart(chart_data)
-
-# Interactive Action
-if st.button("Process Data", type="primary"):
-    st.success("Data updated successfully!")
-
-st.divider()
-
-# 6. File Uploader Section
-st.subheader("📁 Upload Custom Data")
-uploaded_file = st.file_uploader("Upload a CSV file to inspect", type=["csv"])
-
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    st.write("### Preview of Uploaded Data")
-    st.dataframe(df.head())
+'total_Here is a complete, clean starter template for a **Streamlit** `app.py`...

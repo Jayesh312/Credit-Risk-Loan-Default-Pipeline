@@ -1,186 +1,259 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 import joblib
+import os
 
-# Set Page Config
+# -----------------------------------------------------------------------------
+# 1. APP CONFIGURATION & STYLING
+# -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Credit Risk Assessment UI",
-    page_icon="💳",
+    page_title="Intelligent Underwriting Workbench",
+    page_icon="🏦",
     layout="wide"
 )
 
-# Load the trained Pipeline
-@st.cache_resource
-def load_pipeline():
-    return joblib.load("loan_default_pipeline.pkl")
+# Custom CSS for metric cards
+st.markdown("""
+    <style>
+    div[data-testid="metric-container"] {
+        background-color: #f8f9fa;
+        border: 1px solid #e0e0e0;
+        padding: 5% 5% 5% 10%;
+        border-radius: 10px;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-try:
-    pipeline = load_pipeline()
-except Exception as e:
-    st.error(f"⚠️ Could not load `loan_default_pipeline.pkl`. Ensure the file is in the same directory and pushed to GitHub. Details: {e}")
+# -----------------------------------------------------------------------------
+# 2. MODEL LOADING (CACHED FOR SPEED)
+# -----------------------------------------------------------------------------
+@st.cache_resource
+def load_production_model():
+    model_path = 'model.pkl'
+    if os.path.exists(model_path):
+        return joblib.load(model_path)
+    else:
+        return None
+
+pipeline = load_production_model()
+
+if not pipeline:
+    st.error("🚨 Critical Error: `model.pkl` not found. Please train and save your model before launching the portal.")
     st.stop()
 
-st.title("💳 Credit Risk & Loan Default Assessment")
-st.markdown("Fill in borrower details to predict loan default probability using the trained pipeline.")
+# Constant configuration
+DECISION_THRESHOLD = 0.0702  # Optimized threshold
+LGD = 0.65  # Loss Given Default (Industry average assumption: 65%)
 
-st.markdown("---")
+# -----------------------------------------------------------------------------
+# 3. UI LAYOUT & TABS
+# -----------------------------------------------------------------------------
+st.title("🏦 Intelligent Underwriting Workbench")
+st.markdown("Real-time credit risk assessment, stress testing, and batch portfolio inference.")
 
-# Sidebar - Decision Threshold Adjustment
-st.sidebar.header("⚙️ Risk Threshold Settings")
-custom_threshold = st.sidebar.slider(
-    "Default Decision Threshold",
-    min_value=0.01,
-    max_value=0.50,
-    value=0.05,
-    step=0.01,
-    help="Due to extreme class imbalance (~1.78% base rate), standard 0.5 threshold will miss defaults. Adjust this threshold to calibrate recall."
-)
+tab_evaluate, tab_scenario, tab_batch = st.tabs([
+    "📝 Single Applicant Evaluation", 
+    "🧪 What-If Stress Testing", 
+    "📁 Batch Portfolio Processing"
+])
 
-# Streamlit Form with structured input tabs
-with st.form("loan_prediction_form"):
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "💰 Loan & Borrower Profile",
-        "📊 Financial Ratios & Income",
-        "📜 Credit History & Inquiries",
-        "⚠️ Delinquency & Public Records"
-    ])
-
-    # --- TAB 1: LOAN & BORROWER PROFILE ---
-    with tab1:
-        st.subheader("Loan & Basic Borrower Information")
+# =============================================================================
+# TAB 1: SINGLE APPLICANT EVALUATION
+# =============================================================================
+with tab_evaluate:
+    st.header("Applicant Profile Entry")
+    
+    with st.form("underwriting_form"):
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            loan_amount = st.number_input("Loan Amount ($)", min_value=1000.0, max_value=100000.0, value=15000.0, step=500.0)
-            term = st.selectbox("Term (Months)", options=[36, 60], index=0)
-            interest_rate = st.number_input("Interest Rate (%)", min_value=5.0, max_value=35.0, value=11.5, step=0.1)
-            installment = st.number_input("Monthly Installment ($)", min_value=50.0, max_value=3000.0, value=495.0, step=10.0)
+            st.subheader("Financial Standing")
+            annual_income = st.number_input("Annual Income ($)", value=65000, step=5000)
+            debt_to_income = st.number_input("Debt-to-Income (%)", value=22.5, step=1.0)
+            emp_length = st.number_input("Employment (Years)", value=5, min_value=0, max_value=40)
+            homeownership = st.selectbox("Housing Status", ['MORTGAGE', 'RENT', 'OWN'])
+            verified_income = st.selectbox("Income Verification", ['Verified', 'Source Verified', 'Not Verified'])
 
         with col2:
-            grade = st.selectbox("Loan Grade", options=['A', 'B', 'C', 'D', 'E', 'F', 'G'], index=1)
-            homeownership = st.selectbox("Homeownership Status", options=['MORTGAGE', 'RENT', 'OWN'], index=0)
-            verified_income = st.selectbox("Income Verification Status", options=['Verified', 'Source Verified', 'Not Verified'], index=1)
-            emp_length = st.number_input("Employment Length (Years)", min_value=0.0, max_value=50.0, value=5.0, step=1.0)
-
-        with col3:
-            loan_purpose = st.selectbox("Loan Purpose", options=[
-                'debt_consolidation', 'credit_card', 'home_improvement', 
-                'major_purchase', 'medical', 'small_business', 'car', 'other'
-            ], index=0)
-            application_type = st.selectbox("Application Type", options=['individual', 'joint'], index=0)
-            initial_listing_status = st.selectbox("Initial Listing Status", options=['w', 'f'], index=0)
-            disbursement_method = st.selectbox("Disbursement Method", options=['Cash', 'DirectPay'], index=0)
-            state = st.selectbox("US State", options=[
-                'CA', 'NY', 'TX', 'FL', 'IL', 'PA', 'OH', 'GA', 'NC', 'MI', 'NJ', 'VA', 'WA', 'AZ', 'MA', 'OTHER'
-            ], index=0)
-
-    # --- TAB 2: FINANCIAL RATIOS & INCOME ---
-    with tab2:
-        st.subheader("Income & Credit Utilization")
-        col1, col2 = st.columns(2)
-
-        with col1:
-            annual_income = st.number_input("Annual Income ($)", min_value=1000.0, max_value=1000000.0, value=75000.0, step=1000.0)
-            debt_to_income = st.number_input("Debt-to-Income (DTI)", min_value=0.0, max_value=100.0, value=18.5, step=0.5)
-            total_credit_limit = st.number_input("Total Credit Limit ($)", min_value=0.0, max_value=1000000.0, value=45000.0, step=1000.0)
-            total_credit_utilized = st.number_input("Total Credit Utilized ($)", min_value=0.0, max_value=500000.0, value=12000.0, step=500.0)
-
-        with col2:
-            total_debit_limit = st.number_input("Total Debit Card Limit ($)", min_value=0.0, max_value=500000.0, value=15000.0, step=500.0)
-            num_active_debit_accounts = st.number_input("Active Debit Accounts", min_value=0, max_value=50, value=3)
-            num_cc_carrying_balance = st.number_input("CC Accounts Carrying Balance", min_value=0, max_value=50, value=2)
-
-    # --- TAB 3: CREDIT HISTORY & INQUIRIES ---
-    with tab3:
-        st.subheader("Credit Accounts & Inquiries")
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            credit_history_years = st.number_input("Credit History (Years)", min_value=0.0, max_value=60.0, value=12.0, step=0.5)
-            inquiries_last_12m = st.number_input("Inquiries (Last 12 Months)", min_value=0, max_value=30, value=1)
-            months_since_last_credit_inquiry = st.number_input("Months Since Last Inquiry", min_value=0.0, max_value=120.0, value=4.0, step=1.0)
-
-        with col2:
-            total_credit_lines = st.number_input("Total Credit Lines", min_value=1, max_value=100, value=20)
-            open_credit_lines = st.number_input("Open Credit Lines", min_value=0, max_value=100, value=10)
-            num_total_cc_accounts = st.number_input("Total Credit Card Accounts", min_value=0, max_value=50, value=8)
-            num_open_cc_accounts = st.number_input("Open Credit Card Accounts", min_value=0, max_value=50, value=5)
-
-        with col3:
-            num_mort_accounts = st.number_input("Mortgage Accounts", min_value=0, max_value=20, value=1)
-            current_installment_accounts = st.number_input("Current Installment Accounts", min_value=0, max_value=30, value=2)
-            accounts_opened_24m = st.number_input("Accounts Opened (Last 24 Months)", min_value=0, max_value=50, value=3)
-            num_satisfactory_accounts = st.number_input("Satisfactory Accounts", min_value=0, max_value=100, value=18)
-
-    # --- TAB 4: DELINQUENCY & PUBLIC RECORDS ---
-    with tab4:
-        st.subheader("Delinquencies & Negative Records")
-        col1, col2 = st.columns(2)
-
-        with col1:
-            delinq_2y = st.number_input("Delinquencies (Last 2 Years)", min_value=0, max_value=30, value=0)
+            st.subheader("Credit History")
+            credit_history_years = st.number_input("Credit History (Years)", value=10, min_value=1)
+            total_credit_lines = st.number_input("Total Credit Lines", value=15, min_value=1)
+            open_credit_lines = st.number_input("Open Credit Lines", value=6, min_value=1)
+            delinq_2y = st.number_input("Delinquencies (Last 24M)", value=0, min_value=0)
+            inquiries_last_12m = st.number_input("Recent Inquiries (12M)", value=1, min_value=0)
             
-            # Allow toggle for missing values (represented as NaN in model pipeline)
-            has_prev_delinq = st.checkbox("Has previous delinquency record?", value=False)
-            months_since_last_delinq = st.number_input("Months Since Last Delinquency", min_value=0.0, max_value=200.0, value=36.0) if has_prev_delinq else np.nan
+        with col3:
+            st.subheader("Loan Request details")
+            loan_amount = st.number_input("Loan Amount ($)", value=12000, step=1000)
+            term = st.selectbox("Term Length", [36, 60])
+            interest_rate = st.number_input("Proposed Interest Rate (%)", value=11.5, step=0.1)
+            installment = st.number_input("Monthly Installment ($)", value=395, step=10)
+            loan_purpose = st.selectbox("Purpose", ['debt_consolidation', 'credit_card', 'home_improvement', 'other'])
+            
+        submit_eval = st.form_submit_button("Run Risk Assessment Engine", type="primary")
 
-            has_90d_late = st.checkbox("Has 90+ days late record?", value=False)
-            months_since_90d_late = st.number_input("Months Since 90 Days Late", min_value=0.0, max_value=200.0, value=48.0) if has_90d_late else np.nan
+    if submit_eval:
+        # Base dictionary built to match pipeline expectation
+        eval_data = {
+            'annual_income': annual_income, 'debt_to_income': debt_to_income, 'emp_length': emp_length,
+            'credit_history_years': credit_history_years, 'total_credit_lines': total_credit_lines,
+            'open_credit_lines': open_credit_lines, 'delinq_2y': delinq_2y, 'inquiries_last_12m': inquiries_last_12m,
+            'loan_amount': loan_amount, 'term': term, 'interest_rate': interest_rate, 'installment': installment,
+            'homeownership': homeownership, 'verified_income': verified_income, 'loan_purpose': loan_purpose,
+            
+            # Imputed defaults for remaining required features
+            'months_since_last_delinq': np.nan, 'total_credit_limit': annual_income * 1.5,
+            'total_credit_utilized': annual_income * 0.4, 'num_collections_last_12m': 0,
+            'num_historical_failed_to_pay': 0, 'months_since_90d_late': np.nan, 'current_accounts_delinq': 0,
+            'total_collection_amount_ever': 0, 'current_installment_accounts': 1, 'accounts_opened_24m': 2,
+            'months_since_last_credit_inquiry': 6, 'num_satisfactory_accounts': open_credit_lines,
+            'num_accounts_120d_past_due': 0, 'num_accounts_30d_past_due': 0, 'num_active_debit_accounts': 2,
+            'total_debit_limit': 10000, 'num_total_cc_accounts': 5, 'num_open_cc_accounts': 3,
+            'num_cc_carrying_balance': 2, 'num_mort_accounts': 1 if homeownership == 'MORTGAGE' else 0,
+            'account_never_delinq_percent': 100.0 if delinq_2y == 0 else 90.0, 'tax_liens': 0, 
+            'public_record_bankrupt': 0, 'state': 'NY', 'application_type': 'individual', 
+            'grade': 'B', 'initial_listing_status': 'whole', 'disbursement_method': 'Cash'
+        }
+        
+        df_input = pd.DataFrame([eval_data])
+        
+        # Inference
+        pd_score = pipeline.predict_proba(df_input)[0][1]  # Probability of Default
+        expected_loss = pd_score * LGD * loan_amount
+        
+        st.markdown("---")
+        st.subheader("Assessment Results")
+        
+        # Store results in session state for the "What-If" tab
+        st.session_state['base_applicant'] = eval_data
+        st.session_state['base_pd'] = pd_score
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Probability of Default (PD)", f"{pd_score:.2%}")
+        c2.metric("Loss Given Default (LGD)", f"{LGD:.0%}")
+        c3.metric("Expected Loss (EL)", f"${expected_loss:,.2f}")
+        
+        if pd_score >= DECISION_THRESHOLD:
+            c4.error("Decision: DECLINE / REVIEW")
+        else:
+            c4.success("Decision: APPROVED")
 
-            num_collections_last_12m = st.number_input("Collections (Last 12 Months)", min_value=0, max_value=20, value=0)
-            total_collection_amount_ever = st.number_input("Total Collection Amount Ever ($)", min_value=0.0, max_value=100000.0, value=0.0)
+# =============================================================================
+# TAB 2: WHAT-IF STRESS TESTING
+# =============================================================================
+with tab_scenario:
+    st.header("🧪 Scenario Simulator")
+    st.markdown("Adjust key variables dynamically to see how the applicant's risk profile responds.")
+    
+    if 'base_applicant' not in st.session_state:
+        st.info("👈 Please evaluate an applicant in the first tab to unlock the What-If Simulator.")
+    else:
+        base_data = st.session_state['base_applicant'].copy()
+        base_pd = st.session_state['base_pd']
+        
+        col_s1, col_s2 = st.columns([1, 2])
+        
+        with col_s1:
+            st.markdown("### Adjust Parameters")
+            sim_income = st.slider("Simulate Income ($)", 
+                                   min_value=int(base_data['annual_income'] * 0.5), 
+                                   max_value=int(base_data['annual_income'] * 2.0), 
+                                   value=int(base_data['annual_income']), step=1000)
+            
+            sim_loan_amt = st.slider("Simulate Loan Amount ($)", 
+                                     min_value=1000, 
+                                     max_value=int(base_data['loan_amount'] * 2.0), 
+                                     value=int(base_data['loan_amount']), step=500)
+            
+            sim_interest = st.slider("Simulate Interest Rate (%)", 
+                                     min_value=4.0, max_value=30.0, 
+                                     value=float(base_data['interest_rate']), step=0.5)
+            
+            base_data['annual_income'] = sim_income
+            base_data['loan_amount'] = sim_loan_amt
+            base_data['interest_rate'] = sim_interest
+            
+            # Re-predict
+            df_sim = pd.DataFrame([base_data])
+            sim_pd = pipeline.predict_proba(df_sim)[0][1]
+            pd_delta = sim_pd - base_pd
+            
+        with col_s2:
+            st.markdown("### Impact Analysis")
+            
+            m1, m2 = st.columns(2)
+            m1.metric("Simulated Risk (PD)", f"{sim_pd:.2%}", delta=f"{pd_delta * 100:.2f}% shift", delta_color="inverse")
+            m2.metric("New Expected Loss", f"${sim_pd * LGD * sim_loan_amt:,.2f}")
+            
+            # Visualizing the shift
+            fig = go.Figure(go.Indicator(
+                mode = "gauge+number+delta",
+                value = sim_pd * 100,
+                domain = {'x': [0, 1], 'y': [0, 1]},
+                title = {'text': "Simulated Default Risk (%)"},
+                delta = {'reference': base_pd * 100, 'increasing': {'color': "red"}, 'decreasing': {'color': "green"}},
+                gauge = {
+                    'axis': {'range': [0, 25]},
+                    'bar': {'color': "rgba(0,0,0,0)"}, # hide bar, use pointer
+                    'steps': [
+                        {'range': [0, DECISION_THRESHOLD*100], 'color': "#d4edda"},
+                        {'range': [DECISION_THRESHOLD*100, 25], 'color': "#f8d7da"}
+                    ],
+                    'threshold': {
+                        'line': {'color': "black", 'width': 4},
+                        'thickness': 0.75,
+                        'value': sim_pd * 100
+                    }
+                }
+            ))
+            st.plotly_chart(fig, use_container_width=True)
 
-        with col2:
-            num_historical_failed_to_pay = st.number_input("Historical Failed to Pay Counts", min_value=0, max_value=20, value=0)
-            current_accounts_delinq = st.number_input("Current Accounts Delinquent", min_value=0, max_value=10, value=0)
-            account_never_delinq_percent = st.number_input("Account Never Delinquent (%)", min_value=0.0, max_value=100.0, value=100.0, step=1.0)
-            num_accounts_120d_past_due = st.number_input("Accounts 120+ Days Past Due", min_value=0, max_value=10, value=0)
-            num_accounts_30d_past_due = st.number_input("Accounts 30 Days Past Due", min_value=0, max_value=10, value=0)
-            tax_liens = st.number_input("Tax Liens", min_value=0, max_value=20, value=0)
-            public_record_bankrupt = st.number_input("Public Record Bankruptcies", min_value=0, max_value=10, value=0)
-
-    # Submit Button
-    submit_button = st.form_submit_button("🔍 Calculate Risk & Predict Default", use_container_width=True)
-
-# --- PREDICTION LOGIC ---
-if submit_button:
-    # 1. Compute dynamic engineered ratio features matching notebook rules
-    loan_to_income = loan_amount / annual_income if annual_income > 0 else np.nan
-    installment_to_income = (installment * 12) / annual_income if annual_income > 0 else np.nan
-    revol_util_proxy = total_credit_utilized / total_credit_limit if total_credit_limit > 0 else np.nan
-    credit_lines_open_ratio = open_credit_lines / total_credit_lines if total_credit_lines > 0 else np.nan
-
-    # 2. Assemble DataFrame matching exact column order and names expected by ColumnTransformer
-    input_dict = {
-        'emp_length': emp_length,
-        'annual_income': annual_income,
-        'debt_to_income': debt_to_income,
-        'delinq_2y': delinq_2y,
-        'months_since_last_delinq': months_since_last_delinq,
-        'credit_history_years': credit_history_years,
-        'inquiries_last_12m': inquiries_last_12m,
-        'total_credit_lines': total_credit_lines,
-        'open_credit_lines': open_credit_lines,
-        'total_credit_limit': total_credit_limit,
-        'total_credit_utilized': total_credit_utilized,
-        'num_collections_last_12m': num_collections_last_12m,
-        'num_historical_failed_to_pay': num_historical_failed_to_pay,
-        'months_since_90d_late': months_since_90d_late,
-        'current_accounts_delinq': current_accounts_delinq,
-        'total_collection_amount_ever': total_collection_amount_ever,
-        'current_installment_accounts': current_installment_accounts,
-        'accounts_opened_24m': accounts_opened_24m,
-        'months_since_last_credit_inquiry': months_since_last_credit_inquiry,
-        'num_satisfactory_accounts': num_satisfactory_accounts,
-        'num_accounts_120d_past_due': num_accounts_120d_past_due,
-        'num_accounts_30d_past_due': num_accounts_30d_past_due,
-        'num_active_debit_accounts': num_active_debit_accounts,
-        'total_debit_limit': total_This error happens because a piece of conversational AI text was accidentally copy-pasted directly into your Python code, and Python doesn't know how to read it. 
-
-A `SyntaxError: unterminated string literal` means that Python saw a quote mark open a string (in this case, `'`), but the line ended before it found the closing quote mark. 
-
-Looking at your error message, you can see exactly what happened:
-
-```python
-'total_Here is a complete, clean starter template for a **Streamlit** `app.py`...
+# =============================================================================
+# TAB 3: BATCH PORTFOLIO PROCESSING
+# =============================================================================
+with tab_batch:
+    st.header("📁 Batch Execution Engine")
+    st.markdown("Upload a raw dataset to score thousands of loans simultaneously.")
+    
+    uploaded_file = st.file_uploader("Upload Applicant CSV", type=["csv"])
+    
+    if uploaded_file is not None:
+        batch_df = pd.read_csv(uploaded_file)
+        
+        with st.spinner("Executing Risk Engine over portfolio..."):
+            # Predict probabilities
+            probs = pipeline.predict_proba(batch_df)[:, 1]
+            
+            results_df = batch_df.copy()
+            results_df['PD_Score'] = probs
+            results_df['Risk_Tier'] = pd.cut(
+                results_df['PD_Score'], 
+                bins=[0, DECISION_THRESHOLD/2, DECISION_THRESHOLD, 1.0], 
+                labels=['Low Risk', 'Medium Risk', 'High Risk']
+            )
+            
+            st.success("✅ Batch processing complete!")
+            
+            col_b1, col_b2 = st.columns([1, 1])
+            with col_b1:
+                st.write(f"Total Rows Scored: **{len(results_df):,}**")
+                tier_counts = results_df['Risk_Tier'].value_counts().reset_index()
+                fig_tier = px.bar(tier_counts, x='Risk_Tier', y='count', color='Risk_Tier', 
+                                  color_discrete_map={'Low Risk':'#28a745', 'Medium Risk':'#ffc107', 'High Risk':'#dc3545'},
+                                  title="Portfolio Risk Distribution")
+                st.plotly_chart(fig_tier, use_container_width=True)
+            
+            with col_b2:
+                st.dataframe(results_df[['loan_amount', 'annual_income', 'PD_Score', 'Risk_Tier']].head(10))
+                
+                csv = results_df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download Annotated Portfolio",
+                    data=csv,
+                    file_name="portfolio_risk_scores.csv",
+                    mime="text/csv",
+                )
